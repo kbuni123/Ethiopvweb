@@ -29,22 +29,20 @@ def load_woredas():
     
     return woredas, town_list
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour to improve performance
+@st.cache_data(ttl=3600)
 def get_weather_data(lat, lon):
-    """Extract weather data for specific coordinates from Azure Blob Storage"""
+    """Load weather data from MEGA or other direct download service"""
     
-    # Azure Blob Storage URL with SAS token
-    WEATHER_DATA_URL = st.secrets.get("WEATHER_DATA_URL", 
-        "https://drive.google.com/uc?export=download&id=1TM39d2kQS1E-DkG7gyRjuPyosAHSJYfd")
+    # Example MEGA URL (replace with your actual URL)
+    MEGA_URL = "https://mega.nz/file/gP0EmRJb#kLZRPsZW7EaR7d6mlEioyVHhNgU_QVGcentrQsv354w"
     
     try:
-        # First attempt to use xarray directly with the URL
         import xarray as xr
-        with st.spinner("Loading weather data for this location..."):
-            # Open the dataset directly from the URL
-            dataset = xr.open_dataset(WEATHER_DATA_URL, engine='h5netcdf')
+        with st.spinner("Loading weather data from MEGA..."):
+            # MEGA URLs work directly with xarray
+            dataset = xr.open_dataset(MEGA_URL, engine='h5netcdf')
             
-            # Extract data for the specific coordinates
+            # Extract data for coordinates
             nearest_x = dataset.x.sel(x=lon, method="nearest")
             nearest_y = dataset.y.sel(y=lat, method="nearest")
             location_data = dataset.sel(x=nearest_x, y=nearest_y)
@@ -52,15 +50,20 @@ def get_weather_data(lat, lon):
             # Convert to dataframe
             df = location_data.to_dataframe().reset_index().set_index('time')
             
-            # Fix for wind speed - use wnd100m if available or set a minimum wind speed
-            if 'wnd100m' in df.columns and df['wnd100m'].mean() > 0:
+            # Add wind speed handling
+            if 'wnd100m' in df.columns:
                 df['wind_speed'] = df['wnd100m']
             else:
-                # Set a minimum non-zero wind speed to avoid temperature model issues
-                df['wind_speed'] = 1.0  # 1 m/s is a reasonable minimum value
-                print("Set minimum wind speed to 1.0 m/s to avoid temperature model issues")
+                df['wind_speed'] = 1.0
             
+            dataset.close()
+            st.success("✅ Weather data loaded successfully!")
             return df
+            
+    except Exception as e:
+        st.warning(f"Failed to load weather data: {e}")
+        st.info("Using synthetic weather data...")
+        return generate_synthetic_weather_data(lat, lon)
     
     except Exception as e:
         st.error(f"Error accessing weather data: {str(e)}")
@@ -307,5 +310,6 @@ def calculate_pv_production(weather_with_solar, roof_area, efficiency=0.2, syste
         'hourly_ac_power': ac_power
     }
     return results
+
 
 
