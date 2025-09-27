@@ -30,17 +30,142 @@ def load_woredas():
     return woredas, town_list
 
 @st.cache_data(ttl=3600)
-def get_weather_data(lat, lon):
-    """Load weather data from MEGA or other direct download service"""
+# ADD these regional file mappings at the top of your pv_calculator.py file
+# (after the imports, before your existing functions)
+
+# REGIONAL FILE MAPPING - UPDATE WITH YOUR ACTUAL MEGA URLS
+REGIONAL_FILES = {
+    "north": {
+        "lat_range": (12, 15),
+        "lon_range": (36, 40),
+        "mega_url": "https://mega.nz/file/BXsBUA7B#mbZZI30pFdW4WjHJg1BSIUdOm3QapNjGjCjuXZCXaH4",
+        "description": "Northern Ethiopia (Tigray)"
+    },
+    "northwest": {
+        "lat_range": (10, 14),
+        "lon_range": (35, 39),
+        "mega_url": "https://mega.nz/file/kX9QiCKR#UiEP0OXmGahpn4LOfiw_AYZv-oMkAUO3JFfNhrihJAE",
+        "description": "Northwestern Ethiopia (Amhara)"
+    },
+    "central": {
+        "lat_range": (7, 11),
+        "lon_range": (37, 41),
+        "mega_url": "https://mega.nz/file/1X9ARIAB#qahcHbOqhhsGOi6rgOEBBqZQ5QFZwNokeh03iAA7ank",  # You already have this one!
+        "description": "Central Ethiopia (Addis Ababa, Oromia)"
+    },
+    "east": {
+        "lat_range": (5, 12),
+        "lon_range": (40, 48),
+        "mega_url": "https://mega.nz/file/AWFigLzQ#frYybCR5NVosyt_XxREX3x86LHlNSQSK3DlkMfptKUw",
+        "description": "Eastern Ethiopia (Somali, Afar)"
+    },
+    "south": {
+        "lat_range": (3, 8),
+        "lon_range": (34, 39),
+        "mega_url": "https://mega.nz/file/NWMwBQqK#st7CeaG2oNnRiFqK99KEjEBo_jq4pzI86qMdOmK3MMw",
+        "description": "Southern Ethiopia (SNNPR)"
+    },
+    "west": {
+        "lat_range": (8, 12),
+        "lon_range": (33, 37),
+        "mega_url": "UPDATE_WITH_WEST_REGION_MEGA_URL",
+        "description": "Western Ethiopia (Benishangul-Gumuz, Gambela)"
+    }
+}
+
+def get_region_for_coordinates(lat, lon):
+    """Determine which regional file to use for given coordinates"""
+    for region_name, region_info in REGIONAL_FILES.items():
+        lat_min, lat_max = region_info["lat_range"]
+        lon_min, lon_max = region_info["lon_range"]
+        
+        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+            return region_name
     
-    # Example MEGA URL (replace with your actual URL)
-    MEGA_URL = "https://mega.nz/file/gP0EmRJb#kLZRPsZW7EaR7d6mlEioyVHhNgU_QVGcentrQsv354w"
+    # Default to central if no match found
+    return "central"
+
+# ADD this function (you're missing it but it's called in your except block)
+def generate_synthetic_weather_data(lat, lon):
+    """Generate realistic synthetic weather data for Ethiopia"""
+    
+    # Create a full year of hourly data
+    dates = pd.date_range('2023-01-01', '2023-12-31 23:00:00', freq='H')
+    
+    # Ethiopian climate parameters based on location
+    if lat > 12:  # Northern Ethiopia
+        base_temp, base_ghi = 22, 2100
+    elif lat < 6:  # Southern Ethiopia  
+        base_temp, base_ghi = 25, 2200
+    elif lon > 40:  # Eastern Ethiopia
+        base_temp, base_ghi = 30, 2300
+    elif lon < 36:  # Western Ethiopia
+        base_temp, base_ghi = 28, 1900
+    else:  # Central Ethiopia
+        base_temp, base_ghi = 20, 2000
+    
+    # Generate temperature
+    day_of_year = dates.dayofyear
+    hour_of_day = dates.hour
+    np.random.seed(42)  # Reproducible results
+    
+    seasonal_temp = base_temp + 3 * np.sin(2 * np.pi * (day_of_year - 81) / 365)
+    daily_temp = 8 * np.sin(2 * np.pi * (hour_of_day - 6) / 24)
+    temperature = seasonal_temp + daily_temp + np.random.normal(0, 2, len(dates))
+    
+    # Generate solar irradiance
+    solar_elevation = np.maximum(0, np.sin(2 * np.pi * (hour_of_day - 6) / 12))
+    ghi = base_ghi * solar_elevation * np.random.normal(1, 0.3, len(dates))
+    ghi = np.clip(ghi, 0, None)
+    
+    # Estimate DNI and DHI
+    dni = ghi * 0.8 
+    dhi = ghi * 0.2
+    
+    # Wind speed
+    wind_speed = 3.0 + np.random.normal(0, 1, len(dates))
+    wind_speed = np.clip(wind_speed, 0.5, 15)
+    
+    # Create DataFrame
+    weather_df = pd.DataFrame({
+        'time': dates,
+        'temperature': temperature,
+        'ghi': ghi,
+        'dni': dni,
+        'dhi': dhi,
+        'influx_direct': dni,
+        'influx_diffuse': dhi,
+        'wind_speed': wind_speed,
+        'wnd100m': wind_speed
+    })
+    
+    weather_df.set_index('time', inplace=True)
+    return weather_df
+
+# REPLACE your existing get_weather_data function with this:
+@st.cache_data(ttl=3600)
+def get_weather_data(lat, lon):
+    """Load weather data from regional MEGA files with fallback"""
+    
+    # Determine which regional file to use
+    region = get_region_for_coordinates(lat, lon)
+    region_info = REGIONAL_FILES[region]
+    
+    st.info(f"📍 Using weather data for {region_info['description']}")
+    
+    # Get the MEGA URL for this region
+    mega_url = region_info["mega_url"]
+    
+    # Check if URL is configured
+    if mega_url.startswith("UPDATE_WITH_"):
+        st.warning(f"⚠️ Weather data for {region} region not configured yet. Using synthetic data.")
+        return generate_synthetic_weather_data(lat, lon)
     
     try:
         import xarray as xr
-        with st.spinner("Loading weather data from MEGA..."):
+        with st.spinner(f"Loading weather data for {region_info['description']}..."):
             # MEGA URLs work directly with xarray
-            dataset = xr.open_dataset(MEGA_URL, engine='h5netcdf')
+            dataset = xr.open_dataset(mega_url, engine='h5netcdf')
             
             # Extract data for coordinates
             nearest_x = dataset.x.sel(x=lon, method="nearest")
@@ -57,19 +182,13 @@ def get_weather_data(lat, lon):
                 df['wind_speed'] = 1.0
             
             dataset.close()
-            st.success("✅ Weather data loaded successfully!")
+            st.success(f"✅ Loaded regional weather data for {region}!")
             return df
             
     except Exception as e:
         st.warning(f"Failed to load weather data: {e}")
         st.info("Using synthetic weather data...")
         return generate_synthetic_weather_data(lat, lon)
-    
-    except Exception as e:
-        st.error(f"Error accessing weather data: {str(e)}")
-        # If direct access fails, provide fallback behavior or more detailed error
-        st.error("Make sure your WEATHER_DATA_URL secret is configured correctly in Streamlit")
-        raise
 # Function to create solar position data
 def get_solar_position(lat, lon, weather_df):
     """Calculate solar position throughout the year and ensure required irradiance components."""
@@ -310,6 +429,7 @@ def calculate_pv_production(weather_with_solar, roof_area, efficiency=0.2, syste
         'hourly_ac_power': ac_power
     }
     return results
+
 
 
 
