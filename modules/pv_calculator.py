@@ -35,7 +35,7 @@ def get_weather_data(lat, lon):
     
     # Azure Blob Storage URL with SAS token
     WEATHER_DATA_URL = st.secrets.get("WEATHER_DATA_URL", 
-        "https://drive.google.com/file/d/1TM39d2kQS1E-DkG7gyRjuPyosAHSJYfd/view?usp=sharing")
+        "https://drive.google.com/uc?export=download&id=1TM39d2kQS1E-DkG7gyRjuPyosAHSJYfd")
     
     try:
         # First attempt to use xarray directly with the URL
@@ -307,4 +307,5 @@ def calculate_pv_production(weather_with_solar, roof_area, efficiency=0.2, syste
         'hourly_ac_power': ac_power
     }
     return results
+
 
