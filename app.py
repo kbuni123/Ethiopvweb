@@ -36,18 +36,26 @@ CURRENT_QUARTER = 1  # 1, 2, 3, or 4 for the quarters of the year
 
 # Check weather data availability
 def check_weather_data_connection():
-    """Test if the weather data in Azure is accessible"""
+    """Test if the regional weather data files are accessible"""
     try:
-        # Get the URL from secrets or use default if testing locally
-        WEATHER_DATA_URL = st.secrets.get("WEATHER_DATA_URL", 
-            "https://ethiopiasolardata2025.blob.core.windows.net/weatherdata/Ethiopia_Annual_2023.nc?sv=2024-11-04&ss=bfqt&srt=co&sp=rtfx&se=2026-03-28T01:25:46Z&st=2025-03-27T17:25:46Z&spr=https&sig=YQCX4s9gQHpXXCJYV3jT02OV8xBmAxjg%2F7x5SO96bLQ%3D")
+        # Import the regional files mapping from pv_calculator
+        from modules.pv_calculator import REGIONAL_FILES
         
-        # Simple HEAD request to check if file exists
-        response = requests.head(WEATHER_DATA_URL)
-        return response.status_code == 200 or response.status_code == 302
+        configured_regions = 0
+        total_regions = len(REGIONAL_FILES)
+        
+        for region_name, region_info in REGIONAL_FILES.items():
+            mega_url = region_info.get("mega_url", "")
+            
+            # Check if URL is configured (not a placeholder)
+            if mega_url and not mega_url.startswith("UPDATE_WITH_"):
+                configured_regions += 1
+        
+        # Return True if we have at least some regions configured
+        return configured_regions > 0
+        
     except Exception as e:
         return False
-
 # Helper function for currency formatting
 def format_currency(amount, currency="ETB"):
     """Format currency values consistently"""
@@ -967,3 +975,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
