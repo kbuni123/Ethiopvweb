@@ -137,9 +137,10 @@ def load_woredas():
     
     return woredas, town_list
 
-@st.cache_data(ttl=3600)  # Decorator goes BEFORE the function, not before variables
+
+@st.cache_data(ttl=3600)
 def get_weather_data(lat, lon):
-    """Load weather data from regional MEGA files with fallback"""
+    """Load weather data from regional MEGA files with improved error handling"""
     
     # Determine which regional file to use
     region = get_region_for_coordinates(lat, lon)
@@ -158,9 +159,97 @@ def get_weather_data(lat, lon):
     try:
         import xarray as xr
         with st.spinner(f"Loading weather data for {region_info['description']}..."):
-            # MEGA URLs work directly with xarray
-            dataset = xr.open_dataset(mega_url, engine='h5netcdf')
             
+            # Method 1: Try direct xarray access
+            try:
+                dataset = xr.open_dataset(mega_url, engine='h5netcdf')
+                st.success(f"✅ Direct access successful for {region}!")
+                
+            except Exception as direct_error:
+                error_msg = str(direct_error).lower()
+                
+                # Check if we got HTML instead of NetCDF (common MEGA issue)
+                if 'doctyp' in error_msg or 'html' in error_msg or 'not the signature' in error_msg:
+                    st.info("🔄 MEGA requires download method, trying alternative approach...")
+                    
+                    # Method 2: Download file first, then open
+                    try:
+                        import requests
+                        import tempfile
+                        
+                        # Use a session with headers to mimic browser
+                        session = requests.Session()
+                        session.headers.update({
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        })
+                        
+                        # Download the file
+                        response = session.get(mega_url, stream=True, timeout=30)
+                        
+                        if response.status_code == 200:
+                            # Create temporary file
+                            with tempfile.NamedTemporaryFile(delete=False, suffix='.nc') as temp_file:
+                                temp_filename = temp_file.name
+                                
+                                # Download in chunks
+                                total_size = int(response.headers.get('content-length', 0))
+                                downloaded = 0
+                                
+                                progress_bar = st.progress(0)
+                                status_text = st.empty()
+                                
+                                for chunk in response.iter_content(chunk_size=1024*1024):  # 1MB chunks
+                                    if chunk:
+                                        temp_file.write(chunk)
+                                        downloaded += len(chunk)
+                                        
+                                        if total_size > 0:
+                                            progress = downloaded / total_size
+                                            progress_bar.progress(progress)
+                                            status_text.text(f"Downloaded {downloaded/(1024*1024):.1f} MB of {total_size/(1024*1024):.1f} MB")
+                                
+                                progress_bar.empty()
+                                status_text.empty()
+                            
+                            # Try to open the downloaded file
+                            try:
+                                dataset = xr.open_dataset(temp_filename, engine='h5netcdf')
+                                st.success(f"✅ Downloaded and loaded weather data for {region}!")
+                                
+                                # Clean up temp file after successful load
+                                import os
+                                # Don't delete yet - xarray might need it
+                                
+                            except Exception as file_error:
+                                # Clean up temp file
+                                import os
+                                try:
+                                    os.unlink(temp_filename)
+                                except:
+                                    pass
+                                
+                                # Check if downloaded file is HTML (MEGA redirect page)
+                                if 'doctyp' in str(file_error).lower() or 'html' in str(file_error).lower():
+                                    st.warning("📄 MEGA returned a webpage instead of the data file")
+                                    st.info("This can happen with large files or if the link requires confirmation")
+                                    raise Exception("MEGA_HTML_REDIRECT")
+                                else:
+                                    raise file_error
+                        else:
+                            raise Exception(f"Download failed with status {response.status_code}")
+                            
+                    except Exception as download_error:
+                        if "MEGA_HTML_REDIRECT" in str(download_error):
+                            st.warning("🔗 MEGA link returned a webpage - the file may be too large or require manual download")
+                            st.info("Consider uploading smaller files or using a different hosting service")
+                        else:
+                            st.warning(f"Download method failed: {str(download_error)}")
+                        raise download_error
+                else:
+                    # Re-raise other types of errors
+                    raise direct_error
+            
+            # If we get here, we have a working dataset
             # Extract data for coordinates
             nearest_x = dataset.x.sel(x=lon, method="nearest")
             nearest_y = dataset.y.sel(y=lat, method="nearest")
@@ -175,13 +264,32 @@ def get_weather_data(lat, lon):
             else:
                 df['wind_speed'] = 1.0
             
+            # Close dataset and clean up
             dataset.close()
-            st.success(f"✅ Loaded regional weather data for {region}!")
+            
+            # Clean up temp file if it exists
+            try:
+                if 'temp_filename' in locals():
+                    import os
+                    os.unlink(temp_filename)
+            except:
+                pass
+            
             return df
             
     except Exception as e:
-        st.warning(f"Failed to load weather data: {e}")
-        st.info("Using synthetic weather data...")
+        error_msg = str(e)
+        
+        if "MEGA_HTML_REDIRECT" in error_msg:
+            st.error("❌ MEGA file access issue - link may need manual verification")
+        elif "timeout" in error_msg.lower():
+            st.error("⏱️ Download timeout - file may be too large or connection slow")
+        elif "connection" in error_msg.lower():
+            st.error("🌐 Network connection issue")
+        else:
+            st.warning(f"Failed to load weather data: {error_msg}")
+        
+        st.info("🔄 Using synthetic weather data as fallback...")
         return generate_synthetic_weather_data(lat, lon)
 
 # Function to create solar position data
@@ -421,3 +529,4 @@ def calculate_pv_production(weather_with_solar, roof_area, efficiency=0.2, syste
         'hourly_ac_power': ac_power
     }
     return results
+
