@@ -12,28 +12,7 @@ import requests
 import streamlit as st
 from datetime import datetime
 
-# Load the shapefile of Ethiopia's woredas
-def load_woredas():
-    current_dir = os.path.dirname(os.path.abspath(__file__))  # modules directory
-    project_dir = os.path.dirname(current_dir)  # main project directory
-    
-    # Create necessary directories
-    os.makedirs(os.path.join(project_dir, "maps"), exist_ok=True)
-    
-    # Load the shapefile
-    SHAPEFILE = os.path.join(project_dir, "data", "shapefiles", "eth_admbnda_adm3_csa_bofedb_2021.shp")
-    woredas = gpd.read_file(SHAPEFILE)
-    
-    # Extract town names for dropdown selection
-    town_list = sorted(woredas["ADM3_EN"].unique())
-    
-    return woredas, town_list
-
-@st.cache_data(ttl=3600)
-# ADD these regional file mappings at the top of your pv_calculator.py file
-# (after the imports, before your existing functions)
-
-# REGIONAL FILE MAPPING - UPDATE WITH YOUR ACTUAL MEGA URLS
+# REGIONAL FILE MAPPING - UPDATED WITH YOUR ACTUAL MEGA URLS
 REGIONAL_FILES = {
     "north": {
         "lat_range": (12, 15),
@@ -50,7 +29,7 @@ REGIONAL_FILES = {
     "central": {
         "lat_range": (7, 11),
         "lon_range": (37, 41),
-        "mega_url": "https://mega.nz/file/1X9ARIAB#qahcHbOqhhsGOi6rgOEBBqZQ5QFZwNokeh03iAA7ank",  # You already have this one!
+        "mega_url": "https://mega.nz/file/1X9ARIAB#qahcHbOqhhsGOi6rgOEBBqZQ5QFZwNokeh03iAA7ank",
         "description": "Central Ethiopia (Addis Ababa, Oromia)"
     },
     "east": {
@@ -85,7 +64,6 @@ def get_region_for_coordinates(lat, lon):
     # Default to central if no match found
     return "central"
 
-# ADD this function (you're missing it but it's called in your except block)
 def generate_synthetic_weather_data(lat, lon):
     """Generate realistic synthetic weather data for Ethiopia"""
     
@@ -142,8 +120,24 @@ def generate_synthetic_weather_data(lat, lon):
     weather_df.set_index('time', inplace=True)
     return weather_df
 
-# REPLACE your existing get_weather_data function with this:
-@st.cache_data(ttl=3600)
+# Load the shapefile of Ethiopia's woredas
+def load_woredas():
+    current_dir = os.path.dirname(os.path.abspath(__file__))  # modules directory
+    project_dir = os.path.dirname(current_dir)  # main project directory
+    
+    # Create necessary directories
+    os.makedirs(os.path.join(project_dir, "maps"), exist_ok=True)
+    
+    # Load the shapefile
+    SHAPEFILE = os.path.join(project_dir, "data", "shapefiles", "eth_admbnda_adm3_csa_bofedb_2021.shp")
+    woredas = gpd.read_file(SHAPEFILE)
+    
+    # Extract town names for dropdown selection
+    town_list = sorted(woredas["ADM3_EN"].unique())
+    
+    return woredas, town_list
+
+@st.cache_data(ttl=3600)  # Decorator goes BEFORE the function, not before variables
 def get_weather_data(lat, lon):
     """Load weather data from regional MEGA files with fallback"""
     
@@ -189,6 +183,7 @@ def get_weather_data(lat, lon):
         st.warning(f"Failed to load weather data: {e}")
         st.info("Using synthetic weather data...")
         return generate_synthetic_weather_data(lat, lon)
+
 # Function to create solar position data
 def get_solar_position(lat, lon, weather_df):
     """Calculate solar position throughout the year and ensure required irradiance components."""
@@ -229,9 +224,6 @@ def get_solar_position(lat, lon, weather_df):
     # Add solar position data
     result = pd.concat([weather_df, solar_position], axis=1)
     return result
-
-# The rest of your calculate_pv_production function remains the same
-# [Include the rest of your existing function here]
 
 def calculate_pv_production(weather_with_solar, roof_area, efficiency=0.2, system_losses=0.14, 
                           panel_width=1.7, panel_height=1.0, spacing_factor=0.2,
@@ -429,7 +421,3 @@ def calculate_pv_production(weather_with_solar, roof_area, efficiency=0.2, syste
         'hourly_ac_power': ac_power
     }
     return results
-
-
-
-
