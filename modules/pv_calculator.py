@@ -192,24 +192,25 @@ def get_weather_data(lat, lon):
                                 temp_filename = temp_file.name
                                 
                                 # Download in chunks
+                                # Download in chunks with text-based progress
                                 total_size = int(response.headers.get('content-length', 0))
                                 downloaded = 0
                                 
-                                progress_bar = st.progress(0)
-                                status_text = st.empty()
+                                status_placeholder = st.empty()
                                 
-                                for chunk in response.iter_content(chunk_size=1024*1024):  # 1MB chunks
+                                for chunk in response.iter_content(chunk_size=1024*1024):
                                     if chunk:
                                         temp_file.write(chunk)
                                         downloaded += len(chunk)
                                         
+                                        # Safe text-based progress
                                         if total_size > 0:
-                                            progress = downloaded / total_size
-                                            progress_bar.progress(progress)
-                                            status_text.text(f"Downloaded {downloaded/(1024*1024):.1f} MB of {total_size/(1024*1024):.1f} MB")
+                                            progress_percent = min(100, (downloaded / total_size) * 100)
+                                            status_placeholder.text(f"Downloading: {progress_percent:.1f}% ({downloaded/(1024*1024):.1f} MB)")
+                                        else:
+                                            status_placeholder.text(f"Downloaded: {downloaded/(1024*1024):.1f} MB")
                                 
-                                progress_bar.empty()
-                                status_text.empty()
+                                status_placeholder.empty()
                             
                             # Try to open the downloaded file
                             try:
@@ -529,4 +530,5 @@ def calculate_pv_production(weather_with_solar, roof_area, efficiency=0.2, syste
         'hourly_ac_power': ac_power
     }
     return results
+
 
